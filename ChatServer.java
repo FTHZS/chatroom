@@ -48,6 +48,50 @@ public class ChatServer {
         "  Use [b]bold[/b], [i]italic[/i], [u]underline[/u]\n" +
         "  Emojis: :smile: :heart: :thumbs: :fire: :skull:\n";
 
+    private static final Map<String, String> EMOJI_MAP = new LinkedHashMap<>();
+    static {
+        EMOJI_MAP.put(":smile:", "😄");
+        EMOJI_MAP.put(":grin:", "😁");
+        EMOJI_MAP.put(":joy:", "😂");
+        EMOJI_MAP.put(":rofl:", "🤣");
+        EMOJI_MAP.put(":wink:", "😉");
+        EMOJI_MAP.put(":blush:", "😊");
+        EMOJI_MAP.put(":sunglasses:", "😎");
+        EMOJI_MAP.put(":thinking:", "🤔");
+        EMOJI_MAP.put(":neutral:", "😐");
+        EMOJI_MAP.put(":cry:", "😢");
+        EMOJI_MAP.put(":sob:", "😭");
+        EMOJI_MAP.put(":angry:", "😠");
+        EMOJI_MAP.put(":rage:", "😡");
+        EMOJI_MAP.put(":skull:", "💀");
+        EMOJI_MAP.put(":fire:", "🔥");
+        EMOJI_MAP.put(":thumbs:", "👍");
+        EMOJI_MAP.put(":thumbsdown:", "👎");
+        EMOJI_MAP.put(":heart:", "❤️");
+        EMOJI_MAP.put(":broken_heart:", "💔");
+        EMOJI_MAP.put(":100:", "💯");
+        EMOJI_MAP.put(":star:", "⭐");
+        EMOJI_MAP.put(":sparkles:", "✨");
+        EMOJI_MAP.put(":zap:", "⚡");
+        EMOJI_MAP.put(":check:", "✔️");
+        EMOJI_MAP.put(":x:", "❌");
+        EMOJI_MAP.put(":wave:", "👋");
+        EMOJI_MAP.put(":clap:", "👏");
+        EMOJI_MAP.put(":pray:", "🙏");
+        EMOJI_MAP.put(":ok_hand:", "👌");
+        EMOJI_MAP.put(":eyes:", "👀");
+        EMOJI_MAP.put(":poop:", "💩");
+        EMOJI_MAP.put(":alien:", "👽");
+        EMOJI_MAP.put(":robot:", "🤖");
+        EMOJI_MAP.put(":cat:", "🐱");
+        EMOJI_MAP.put(":dog:", "🐶");
+        EMOJI_MAP.put(":dragon:", "🐉");
+        EMOJI_MAP.put(":ghost:", "👻");
+        EMOJI_MAP.put(":pumpkin:", "🎃");
+        EMOJI_MAP.put(":snowflake:", "❄️");
+        EMOJI_MAP.put(":christmas_tree:", "🎄");
+    }
+        
     public static void main(String[] args) {
         if (!filesDir.exists()) filesDir.mkdir();
         // refresh index from disk
@@ -135,7 +179,7 @@ public class ChatServer {
 
     
     private static void handleUpdateRequest(Socket socket) {
-        File chatClientFile = new File(filesDir, "ChatClient.java");
+        File chatClientFile = new File("ChatClient.java");
         String latestVersion = getLatestClientVersion(chatClientFile);
     
         try (DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
@@ -231,8 +275,6 @@ public class ChatServer {
                 out = new PrintWriter(new BufferedWriter(new OutputStreamWriter(socket.getOutputStream())), true);
 
                 // First message is username (client sends it immediately)
-                // We still print a prompt for compatibility with dumb clients.
-                out.println("Enter your username:");
                 String requested = in.readLine();
                 username = getUniqueUsername(requested);
 
@@ -295,6 +337,7 @@ public class ChatServer {
                 clients.remove(this);
                 if (username != null) {
                     broadcast("🔴 " + username + " has left the chat!");
+                    broadcastUserList();
                 }
             }
         }
@@ -309,6 +352,15 @@ public class ChatServer {
             if (sb.length() > 2) sb.setLength(sb.length() - 2);
             out.println(sb.toString());
         }
+        
+        private static void broadcastUserList() {
+            synchronized (clients) {
+                for (ClientHandler client : clients) {
+                    client.sendUserList();
+                }
+            }
+        }
+
 
         private String listFilesLine() {
             File[] files = filesDir.listFiles();
@@ -464,54 +516,12 @@ public class ChatServer {
     }
 
     private static String replaceEmojis(String msg) {
-        String[][] emojis = {
-            {":smile:", "😄"},
-            {":grin:", "😁"},
-            {":joy:", "😂"},
-            {":rofl:", "🤣"},
-            {":wink:", "😉"},
-            {":blush:", "😊"},
-            {":sunglasses:", "😎"},
-            {":thinking:", "🤔"},
-            {":neutral:", "😐"},
-            {":cry:", "😢"},
-            {":sob:", "😭"},
-            {":angry:", "😠"},
-            {":rage:", "😡"},
-            {":skull:", "💀"},
-            {":fire:", "🔥"},
-            {":thumbs:", "👍"},
-            {":thumbsdown:", "👎"},
-            {":heart:", "❤️"},
-            {":broken_heart:", "💔"},
-            {":100:", "💯"},
-            {":star:", "⭐"},
-            {":sparkles:", "✨"},
-            {":zap:", "⚡"},
-            {":check:", "✔️"},
-            {":x:", "❌"},
-            {":wave:", "👋"},
-            {":clap:", "👏"},
-            {":pray:", "🙏"},
-            {":ok_hand:", "👌"},
-            {":eyes:", "👀"},
-            {":poop:", "💩"},
-            {":alien:", "👽"},
-            {":robot:", "🤖"},
-            {":cat:", "🐱"},
-            {":dog:", "🐶"},
-            {":dragon:", "🐉"},
-            {":ghost:", "👻"},
-            {":pumpkin:", "🎃"},
-            {":snowflake:", "❄️"},
-            {":christmas_tree:", "🎄"}
-        };
-    
-        for (String[] emoji : emojis) {
-            msg = msg.replace(emoji[0], emoji[1]);
+        for (Map.Entry<String, String> entry : EMOJI_MAP.entrySet()) {
+            msg = msg.replace(entry.getKey(), entry.getValue());
         }
         return msg;
     }
+
 
 
     /**

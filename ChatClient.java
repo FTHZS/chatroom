@@ -10,7 +10,12 @@ public class ChatClient {
     private static final String SERVER_IP = "192.168.100.60"; // change to your server IP
     private static final int SERVER_PORT = 12345;
 
-    private static final String CLIENT_VERSION = "1.01";
+    private static final String CLIENT_VERSION = "1.07";
+    
+    private DefaultListModel<String> userListModel = new DefaultListModel<>();
+    private JList<String> userList = new JList<>(userListModel);
+    private JScrollPane userScrollPane = new JScrollPane(userList);
+
 
     private Socket socket;
     private PrintWriter out;
@@ -29,6 +34,50 @@ public class ChatClient {
     private final Map<String, String> commands = new LinkedHashMap<>();
     private String currentUsername = "Anonymous";
     
+    private static final Map<String, String> emojiMap = new LinkedHashMap<>();
+    static {
+        emojiMap.put(":smile:", "😄");
+        emojiMap.put(":grin:", "😁");
+        emojiMap.put(":joy:", "😂");
+        emojiMap.put(":rofl:", "🤣");
+        emojiMap.put(":wink:", "😉");
+        emojiMap.put(":blush:", "😊");
+        emojiMap.put(":sunglasses:", "😎");
+        emojiMap.put(":thinking:", "🤔");
+        emojiMap.put(":neutral:", "😐");
+        emojiMap.put(":cry:", "😢");
+        emojiMap.put(":sob:", "😭");
+        emojiMap.put(":angry:", "😠");
+        emojiMap.put(":rage:", "😡");
+        emojiMap.put(":skull:", "💀");
+        emojiMap.put(":fire:", "🔥");
+        emojiMap.put(":thumbs:", "👍");
+        emojiMap.put(":thumbsdown:", "👎");
+        emojiMap.put(":heart:", "❤️");
+        emojiMap.put(":broken_heart:", "💔");
+        emojiMap.put(":100:", "💯");
+        emojiMap.put(":star:", "⭐");
+        emojiMap.put(":sparkles:", "✨");
+        emojiMap.put(":zap:", "⚡");
+        emojiMap.put(":check:", "✔️");
+        emojiMap.put(":x:", "❌");
+        emojiMap.put(":wave:", "👋");
+        emojiMap.put(":clap:", "👏");
+        emojiMap.put(":pray:", "🙏");
+        emojiMap.put(":ok_hand:", "👌");
+        emojiMap.put(":eyes:", "👀");
+        emojiMap.put(":poop:", "💩");
+        emojiMap.put(":alien:", "👽");
+        emojiMap.put(":robot:", "🤖");
+        emojiMap.put(":cat:", "🐱");
+        emojiMap.put(":dog:", "🐶");
+        emojiMap.put(":dragon:", "🐉");
+        emojiMap.put(":ghost:", "👻");
+        emojiMap.put(":pumpkin:", "🎃");
+        emojiMap.put(":snowflake:", "❄️");
+        emojiMap.put(":christmas_tree:", "🎄");
+    }
+    
     public ChatClient() {
         chatPane.setEditable(false);
         chatPane.setFont(new Font("Monospaced", Font.PLAIN, 14));
@@ -41,17 +90,62 @@ public class ChatClient {
 
         boldBtn.setFont(new Font("SansSerif", Font.BOLD, 14));
         italicBtn.setFont(new Font("SansSerif", Font.ITALIC, 14));
+        underlineBtn.setText("<html><u>U</u></html>");
         underlineBtn.setFont(new Font("SansSerif", Font.PLAIN, 14));
-        underlineBtn.setBorder(BorderFactory.createMatteBorder(0, 0, 2, 0, Color.BLACK));
+
 
         toolBar.add(boldBtn);
         toolBar.add(italicBtn);
         toolBar.add(underlineBtn);
         toolBar.add(attachButton);
+        toolBar.setFloatable(false);
+        
+        JButton emojiButton = new JButton("+😀"); // or any icon/text
+        toolBar.add(emojiButton);
+        emojiButton.addActionListener(e -> {
+            // Create panel with grid layout
+            JPanel emojiGrid = new JPanel(new GridLayout(0, 8, 5, 5)); // 8 columns, flexible rows
+            for (Map.Entry<String, String> entry : emojiMap.entrySet()) {
+                JButton btn = new JButton(entry.getValue());
+                btn.setToolTipText(entry.getKey());
+                btn.setMargin(new Insets(2, 2, 2, 2)); // small padding
+        
+                // Insert emoji into inputPane
+                btn.addActionListener(ev -> {
+                    try {
+                        int pos = inputPane.getCaretPosition();
+                        inputPane.getDocument().insertString(pos, entry.getValue(), null);
+                    } catch (BadLocationException ex) {
+                        ex.printStackTrace();
+                    }
+                });
+        
+                emojiGrid.add(btn);
+            }
+        
+            // Wrap in a scroll pane in case there are many emojis
+            JScrollPane scrollPane = new JScrollPane(emojiGrid);
+            scrollPane.setPreferredSize(new Dimension(300, 200));
+        
+            // Create popup
+            JPopupMenu popup = new JPopupMenu();
+            popup.setLayout(new BorderLayout());
+            popup.add(scrollPane, BorderLayout.CENTER);
+        
+            // Show the popup near the emoji button
+            popup.show(emojiButton, 0, emojiButton.getHeight());
+        });
+
 
         // Panel for editor + send button
+        JScrollPane inputScrollPane = new JScrollPane(inputPane);
+        FontMetrics metrics = inputPane.getFontMetrics(inputPane.getFont());
+        int lineHeight = metrics.getHeight();
+        inputScrollPane.setPreferredSize(new Dimension(400, lineHeight * 5 + 8)); // 5 lines height
+        
         JPanel editorPanel = new JPanel(new BorderLayout());
-        editorPanel.add(new JScrollPane(inputPane), BorderLayout.CENTER);
+        editorPanel.add(inputScrollPane, BorderLayout.CENTER);
+
 
         JPanel bottomPanel = new JPanel(new BorderLayout());
         bottomPanel.add(toolBar, BorderLayout.NORTH);
@@ -60,10 +154,20 @@ public class ChatClient {
         JPanel sendPanel = new JPanel(new BorderLayout());
         sendPanel.add(sendButton, BorderLayout.EAST);
         sendPanel.add(typingLabel, BorderLayout.CENTER);
+        
+        userList.setFont(new Font("Monospaced", Font.PLAIN, 14));
+        userList.setFixedCellWidth(120);
+        userList.setBorder(BorderFactory.createTitledBorder("Online Users"));
+
 
         bottomPanel.add(sendPanel, BorderLayout.SOUTH);
 
-        frame.getContentPane().add(new JScrollPane(chatPane), BorderLayout.CENTER);
+        JPanel mainPanel = new JPanel(new BorderLayout());
+        mainPanel.add(new JScrollPane(chatPane), BorderLayout.CENTER);
+        mainPanel.add(userScrollPane, BorderLayout.EAST);
+        
+        frame.getContentPane().add(mainPanel, BorderLayout.CENTER);
+
         frame.getContentPane().add(bottomPanel, BorderLayout.SOUTH);
         frame.setSize(600, 500);
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -211,8 +315,8 @@ public class ChatClient {
     
             // Server sends latest version first
             String latestVersion = dis.readUTF();
-            if (latestVersion.equals("NO_UPDATE") || compareVersion(latestVersion, CLIENT_VERSION) <= 0) {
-                System.out.println("Already up to date (v" + CLIENT_VERSION + ")");
+            if (latestVersion.equals("NO_UPDATE") || latestVersion.equals(CLIENT_VERSION)) {
+                //System.out.println("Already up to date (v" + CLIENT_VERSION + ")");
                 socket.close();
                 return;
             }
@@ -242,24 +346,10 @@ public class ChatClient {
             System.exit(0);
     
         } catch (IOException e) {
-            System.out.println("No update available or file server unreachable.");
+            //System.out.println("No update available or file server unreachable.");
             e.printStackTrace();
         }
     }
-    
-    // Helper to compare version strings like "1.1" vs "1.2"
-    private int compareVersion(String v1, String v2) {
-        String[] parts1 = v1.split("\\.");
-        String[] parts2 = v2.split("\\.");
-        int len = Math.max(parts1.length, parts2.length);
-        for (int i = 0; i < len; i++) {
-            int n1 = i < parts1.length ? Integer.parseInt(parts1[i]) : 0;
-            int n2 = i < parts2.length ? Integer.parseInt(parts2[i]) : 0;
-            if (n1 != n2) return n1 - n2;
-        }
-        return 0;
-    }
-
 
     private void start() {
         
@@ -291,15 +381,19 @@ public class ChatClient {
                         }
                         if (message.startsWith("[USERNAME]")) {
                             currentUsername = message.replace("[USERNAME]", "").trim();
+                            appendSystemMessage("You are using the latest ChatClient v"+CLIENT_VERSION);
                             appendSystemMessage("✅ You are now logged in as: " + currentUsername);
                             continue;
                         }
-                        if (message.startsWith("[TYPING]")) {
+                        if (message.startsWith("👥 Online:")) {
+                            updateUserList(message.replace("👥 Online:", "").trim());
+                        } else if (message.startsWith("[TYPING]")) {
                             showTyping(message.replace("[TYPING]", "").trim());
                         } else {
                             hideTyping();
                             appendMessage(message);
                         }
+
                     }
                     handleDisconnect();
                 } catch (IOException e) {
@@ -312,6 +406,17 @@ public class ChatClient {
             System.exit(0);
         }
     }
+    
+    private void updateUserList(String usersLine) {
+        SwingUtilities.invokeLater(() -> {
+            userListModel.clear();
+            String[] users = usersLine.split(",\\s*");
+            for (String user : users) {
+                if (!user.isEmpty()) userListModel.addElement(user);
+            }
+        });
+    }
+
 
     private void handleDisconnect() {
         appendSystemMessage("❌ Server disconnected.");
@@ -408,8 +513,8 @@ public class ChatClient {
                         {":christmas_tree:", "🎄"}
                     };
     
-                    for (String[] emoji : emojis) {
-                        msg = msg.replace(emoji[0], emoji[1]);
+                    for (Map.Entry<String, String> entry : emojiMap.entrySet()) {
+                        msg = msg.replace(entry.getKey(), entry.getValue());
                     }
     
                     userColors.putIfAbsent(user,
