@@ -5,6 +5,11 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class ChatServer {
+    private static final int UPDATE_PORT = 34567; // new port for auto-updates
+    private static final String UPDATE_FILE = "ChatClient.java"; // file to send for updates
+
+    private static final String CLIENT_VERSION = "1.01"; // current local version
+    
     private static final int PORT = 12345;
     @SuppressWarnings("unused")
     private static final int FILE_PORT = 12346; // reserved (not used in this text-line protocol)
@@ -80,6 +85,19 @@ public class ChatServer {
                 e.printStackTrace();
             }
         }, "server-console").start();
+        
+        // start auto-update server
+        new Thread(() -> {
+            try (ServerSocket updateSocket = new ServerSocket(UPDATE_PORT)) {
+                System.out.println("Auto-update server started on port " + UPDATE_PORT);
+                while (true) {
+                    Socket socket = updateSocket.accept();
+                    new Thread(() -> handleUpdateRequest(socket)).start();
+                }
+            } catch (IOException e) {
+                System.out.println("Update server stopped.");
+            }
+        }, "update-server").start();
 
         // Start main chat server
         try (ServerSocket ss = new ServerSocket(PORT)) {
@@ -91,6 +109,60 @@ public class ChatServer {
             }
         } catch (IOException e) {
             System.out.println("Server stopped.");
+        }
+        
+    }
+    
+    private static String getLatestClientVersion(File chatClientFile) {
+        try (BufferedReader br = new BufferedReader(new FileReader(chatClientFile))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                line = line.trim();
+                if (line.startsWith("private static final String CLIENT_VERSION")) {
+                    // extract version between quotes
+                    int start = line.indexOf("\"");
+                    int end = line.lastIndexOf("\"");
+                    if (start >= 0 && end > start) {
+                        return line.substring(start + 1, end);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return "0.0"; // fallback if not found
+    }
+
+    
+    private static void handleUpdateRequest(Socket socket) {
+        File chatClientFile = new File(filesDir, "ChatClient.java");
+        String latestVersion = getLatestClientVersion(chatClientFile);
+    
+        try (DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
+            // send version first
+            dos.writeUTF(latestVersion);
+    
+            if (!chatClientFile.exists()) {
+                dos.writeUTF("NO_UPDATE");
+                return;
+            }
+    
+            dos.writeUTF(chatClientFile.getName());
+            dos.writeLong(chatClientFile.length());
+    
+            try (FileInputStream fis = new FileInputStream(chatClientFile)) {
+                byte[] buffer = new byte[4096];
+                int read;
+                while ((read = fis.read(buffer)) > 0) {
+                    dos.write(buffer, 0, read);
+                }
+            }
+    
+            System.out.println("Sent ChatClient update: v" + latestVersion);
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            try { socket.close(); } catch (IOException ignored) {}
         }
     }
 

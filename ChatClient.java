@@ -10,6 +10,8 @@ public class ChatClient {
     private static final String SERVER_IP = "192.168.100.60"; // change to your server IP
     private static final int SERVER_PORT = 12345;
 
+    private static final String CLIENT_VERSION = "1.01";
+
     private Socket socket;
     private PrintWriter out;
     private BufferedReader in;
@@ -26,7 +28,7 @@ public class ChatClient {
 
     private final Map<String, String> commands = new LinkedHashMap<>();
     private String currentUsername = "Anonymous";
-
+    
     public ChatClient() {
         chatPane.setEditable(false);
         chatPane.setFont(new Font("Monospaced", Font.PLAIN, 14));
@@ -196,8 +198,73 @@ public class ChatClient {
         }
         appendSystemMessage(sb.toString());
     }
+    
+    private void checkForUpdate() {
+        try {
+            Socket socket = new Socket("192.168.100.60", 34567); // file server port
+            DataInputStream dis = new DataInputStream(socket.getInputStream());
+            DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
+    
+            // Request update for ChatClient
+            dos.writeUTF("ChatClient.java");
+            dos.flush();
+    
+            // Server sends latest version first
+            String latestVersion = dis.readUTF();
+            if (latestVersion.equals("NO_UPDATE") || compareVersion(latestVersion, CLIENT_VERSION) <= 0) {
+                System.out.println("Already up to date (v" + CLIENT_VERSION + ")");
+                socket.close();
+                return;
+            }
+    
+            // Read the file info
+            String fileName = dis.readUTF();
+            long fileLength = dis.readLong();
+    
+            // Save file locally
+            File file = new File(fileName);
+            try (FileOutputStream fos = new FileOutputStream(file)) {
+                byte[] buffer = new byte[4096];
+                int read;
+                long remaining = fileLength;
+                while (remaining > 0 && (read = dis.read(buffer, 0, (int)Math.min(buffer.length, remaining))) > 0) {
+                    fos.write(buffer, 0, read);
+                    remaining -= read;
+                }
+            }
+    
+            socket.close();
+    
+            JOptionPane.showMessageDialog(frame,
+                    "Updated to latest version v" + latestVersion + ". Please run main() again.",
+                    "Update Complete",
+                    JOptionPane.INFORMATION_MESSAGE);
+            System.exit(0);
+    
+        } catch (IOException e) {
+            System.out.println("No update available or file server unreachable.");
+            e.printStackTrace();
+        }
+    }
+    
+    // Helper to compare version strings like "1.1" vs "1.2"
+    private int compareVersion(String v1, String v2) {
+        String[] parts1 = v1.split("\\.");
+        String[] parts2 = v2.split("\\.");
+        int len = Math.max(parts1.length, parts2.length);
+        for (int i = 0; i < len; i++) {
+            int n1 = i < parts1.length ? Integer.parseInt(parts1[i]) : 0;
+            int n2 = i < parts2.length ? Integer.parseInt(parts2[i]) : 0;
+            if (n1 != n2) return n1 - n2;
+        }
+        return 0;
+    }
+
 
     private void start() {
+        
+        checkForUpdate();
+        
         try {
             socket = new Socket(SERVER_IP, SERVER_PORT);
             out = new PrintWriter(socket.getOutputStream(), true);
