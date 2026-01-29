@@ -13,14 +13,8 @@ public class FileClient {
             String fileName = dis.readUTF();
             long fileLength = dis.readLong();
 
-            // Ensure downloads directory exists
-            File downloadsDir = new File("downloads");
-            if (!downloadsDir.exists()) {
-                downloadsDir.mkdir();
-            }
-
             // Save file
-            File file = new File(downloadsDir, fileName);
+            File file = new File(fileName);
             try (FileOutputStream fos = new FileOutputStream(file)) {
                 byte[] buffer = new byte[4096];
                 int read;
