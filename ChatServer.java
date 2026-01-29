@@ -34,18 +34,6 @@ public class ChatServer {
         "  /kick <username>   - Kick a specific user\n" +
         "  <message>          - Broadcast a server announcement (markup supported)\n";
 
-    // Client commands help text
-    private static final String CLIENT_HELP =
-        "\n📖 Commands:\n" +
-        "  /help                - Show this help\n" +
-        "  /users               - List online users\n" +
-        "  /files               - List uploaded files\n" +
-        "  /get <filename>      - Download a file\n" +
-        "  /typing              - Send typing indicator\n" +
-        "\nFormatting:\n" +
-        "  Use [b]bold[/b], [i]italic[/i], [u]underline[/u]\n" +
-        "  Emojis: :smile: :heart: :thumbs: :fire: :skull:\n";
-
     private static final Map<String, String> EMOJI_MAP = new LinkedHashMap<>();
     static {
         EMOJI_MAP.put(":smile:", "😄");
@@ -275,10 +263,6 @@ public class ChatServer {
 
                 String message;
                 while ((message = in.readLine()) != null) {
-                    if (message.equalsIgnoreCase("/help")) {
-                        out.println(CLIENT_HELP);
-                        continue;
-                    }
                     if (message.startsWith("/users")) {
                         sendUserList();
                         continue;
@@ -293,10 +277,6 @@ public class ChatServer {
                     }
                     if (message.startsWith("/file ")) {
                         handleFileUpload(message);
-                        continue;
-                    }
-                    if (message.startsWith("/get ")) {
-                        handleFileDownload(message);
                         continue;
                     }
 
@@ -383,7 +363,7 @@ public class ChatServer {
 
                     fileIndex.put(outFile.getName(), outFile);
                     broadcast("📎 " + username + " uploaded file: " + outFile.getName() +
-                              " (" + size + " bytes). Download with /get " + outFile.getName());
+                              " (" + size + " bytes). Download with /files");
                     return;
                 }
 
@@ -404,66 +384,10 @@ public class ChatServer {
 
                 fileIndex.put(outFile.getName(), outFile);
                 broadcast("📎 " + username + " uploaded file: " + outFile.getName() +
-                          " (" + outFile.length() + " bytes). Download with /get " + outFile.getName());
+                          " (" + outFile.length() + " bytes). Download with /files");
 
             } catch (Exception e) {
                 out.println("[ERROR] File upload failed: " + e.getMessage());
-            }
-        }
-
-        private void handleFileDownload(String command) {
-            try {
-                String[] parts = command.split(" ", 2);
-                if (parts.length < 2) {
-                    out.println("[ERROR] Usage: /get <filename>");
-                    return;
-                }
-                String filename = sanitizeFilename(parts[1]);
-                File file = fileIndex.get(filename);
-                if (file == null) file = new File(filesDir, filename);
-        
-                if (!file.exists() || !file.isFile()) {
-                    out.println("[ERROR] File not found: " + filename);
-                    return;
-                }
-        
-                // Connect to file server (same as update server logic)
-                try (Socket fileSocket = new Socket(socket.getInetAddress(), UPDATE_PORT);
-                     DataInputStream dis = new DataInputStream(fileSocket.getInputStream());
-                     DataOutputStream dos = new DataOutputStream(fileSocket.getOutputStream())) {
-        
-                    // send filename to server
-                    dos.writeUTF(filename);
-                    dos.flush();
-        
-                    // server responds with either NO_FILE or "FILENAME LENGTH"
-                    String response = dis.readUTF();
-                    if ("NO_FILE".equals(response)) {
-                        out.println("[ERROR] File not found on file server: " + filename);
-                        return;
-                    }
-        
-                    // parse header
-                    String[] headerParts = response.split(" ", 2);
-                    long fileSize = Long.parseLong(headerParts[1]);
-        
-                    // inform client (chat socket)
-                    out.println("[DOWNLOAD] " + filename + " " + fileSize);
-        
-                    // stream bytes from file server to client chat socket
-                    OutputStream os = socket.getOutputStream();
-                    byte[] buffer = new byte[4096];
-                    long remaining = fileSize;
-                    int read;
-                    while (remaining > 0 && (read = dis.read(buffer, 0, (int)Math.min(buffer.length, remaining))) != -1) {
-                        os.write(buffer, 0, read);
-                        remaining -= read;
-                    }
-                    os.flush();
-                }
-        
-            } catch (Exception e) {
-                out.println("[ERROR] File download failed: " + e.getMessage());
             }
         }
     }
@@ -509,30 +433,42 @@ public class ChatServer {
                     System.out.println("✅ Client already up-to-date: v" + clientVersion);
                 }
                 return;
-            }
-
-    
-            // Otherwise treat as normal file request
-            String filename = sanitizeFilename(header);
-            File requestedFile = new File(filesDir, filename);
-    
-            if (!requestedFile.exists() || !requestedFile.isFile()) {
-                dos.writeUTF("NO_FILE");
+            } else if (header.startsWith("GET_FILE:")) {
+                String filename = sanitizeFilename(header.substring("GET_FILE:".length()));
+                File requestedFile = new File(filesDir, filename);
+            
+                if (!requestedFile.exists() || !requestedFile.isFile()) {
+                    dos.writeUTF("NO_FILE");
+                    return;
+                }
+            
+                dos.writeUTF("FILE_OK");
+                dos.writeLong(requestedFile.length());
+            
+                try (FileInputStream fis = new FileInputStream(requestedFile)) {
+                    byte[] buffer = new byte[4096];
+                    int read;
+                    while ((read = fis.read(buffer)) != -1) {
+                        dos.write(buffer, 0, read);
+                    }
+                }
+            
+                System.out.println("✅ Served file: " + requestedFile.getName() +
+                                   " to " + socket.getInetAddress());
+            }else if (header.equals("LIST_FILES")) {
+                File[] list = filesDir.listFiles((dir, name) -> new File(dir, name).isFile());
+                if (list == null || list.length == 0) {
+                    dos.writeUTF("NO_FILES");
+                } else {
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 0; i < list.length; i++) {
+                        sb.append(list[i].getName());
+                        if (i < list.length - 1) sb.append(",");
+                    }
+                    dos.writeUTF(sb.toString());
+                }
                 return;
             }
-    
-            dos.writeUTF(requestedFile.getName() + " " + requestedFile.length());
-    
-            try (FileInputStream fis = new FileInputStream(requestedFile)) {
-                byte[] buffer = new byte[4096];
-                int read;
-                while ((read = fis.read(buffer)) != -1) {
-                    dos.write(buffer, 0, read);
-                }
-            }
-    
-            System.out.println("✅ Served file: " + requestedFile.getName() + " to " + socket.getInetAddress());
-    
         } catch (IOException e) {
             System.out.println("❌ File server error: " + e.getMessage());
         } finally {
