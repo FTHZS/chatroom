@@ -10,7 +10,7 @@ public class ChatClient {
     private static final String SERVER_IP = "192.168.100.60"; // change to your server IP
     private static final int SERVER_PORT = 12345;
 
-    private static final String CLIENT_VERSION = "1.087";
+    private static final String CLIENT_VERSION = "1.095";
     
     private DefaultListModel<String> userListModel = new DefaultListModel<>();
     private JList<String> userList = new JList<>(userListModel);
@@ -268,7 +268,9 @@ public class ChatClient {
     private void sendMessage() {
         String msg = getStyledTextAsMarkup(inputPane);
         if (!msg.isEmpty() && out != null) {
-            if (msg.equalsIgnoreCase("/clear")) {
+            if (msg.startsWith("/getFiles")) {
+                requestFileFromServer(msg.substring(5).trim());
+            } else if (msg.equalsIgnoreCase("/clear")) {
                 chatPane.setText("");
             } else if (msg.equalsIgnoreCase("/help")) {
                 showHelp();
@@ -373,7 +375,7 @@ public class ChatClient {
             new Thread(() -> {
                 try {
                     String message;
-                    while ((message = in.readLine()) != null) {
+                    while ((message = in.readLine()) != null) {                        
                         if (message.equals("SERVER_CLOSED")) {
                             handleDisconnect();
                             break;
@@ -411,6 +413,82 @@ public class ChatClient {
         }
     }
     
+    private void requestFileFromServer(String filename) {
+        new Thread(() -> {
+            try {
+                Socket fileSocket = new Socket();
+                fileSocket.connect(new InetSocketAddress(SERVER_IP, 34567), 5000);
+                fileSocket.setSoTimeout(10000);
+    
+                DataOutputStream dos = new DataOutputStream(fileSocket.getOutputStream());
+                DataInputStream dis = new DataInputStream(fileSocket.getInputStream());
+    
+                // Send request
+                dos.writeUTF(filename);
+                dos.flush();
+    
+                // Read server response
+                String response = dis.readUTF();
+                if (response.equals("NO_FILE")) {
+                    appendSystemMessage("❌ File not found on server: " + filename);
+                    fileSocket.close();
+                    return;
+                }
+    
+                String[] parts = response.split(" ", 2);
+                if (parts.length != 2) {
+                    appendSystemMessage("❌ Invalid file response from server.");
+                    fileSocket.close();
+                    return;
+                }
+    
+                String serverFileName = parts[0];
+                long fileLength = Long.parseLong(parts[1]);
+    
+                // Ask user where to save
+                SwingUtilities.invokeLater(() -> {
+                    JFileChooser fileChooser = new JFileChooser();
+                    fileChooser.setSelectedFile(new File(serverFileName));
+                    int choice = fileChooser.showSaveDialog(frame);
+                    if (choice != JFileChooser.APPROVE_OPTION) {
+                        appendSystemMessage("⚠️ File download canceled: " + serverFileName);
+                        try { fileSocket.close(); } catch (IOException ignored) {}
+                        return;
+                    }
+    
+                    File saveFile = fileChooser.getSelectedFile();
+    
+                    // ✅ Now do the actual download inside SAME socket scope
+                    new Thread(() -> {
+                        try (Socket s = fileSocket;
+                             DataInputStream fileIn = dis;
+                             FileOutputStream fos = new FileOutputStream(saveFile)) {
+    
+                            byte[] buffer = new byte[4096];
+                            long remaining = fileLength;
+                            int read;
+                            while (remaining > 0 && (read = fileIn.read(buffer, 0, (int) Math.min(buffer.length, remaining))) > 0) {
+                                fos.write(buffer, 0, read);
+                                remaining -= read;
+                            }
+    
+                            appendSystemMessage("✅ File downloaded: " + saveFile.getAbsolutePath());
+                        } catch (IOException e) {
+                            appendSystemMessage("❌ Failed to save file: " + serverFileName);
+                            e.printStackTrace();
+                        }
+                    }).start();
+                });
+    
+            } catch (IOException e) {
+                appendSystemMessage("❌ Could not connect to file server: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
+
+
     private void updateUserList(String usersLine) {
         SwingUtilities.invokeLater(() -> {
             userListModel.clear();

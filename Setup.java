@@ -25,6 +25,13 @@ public class Setup {
                 }
             }
 
+            // Delete server_files directory recursively
+            File serverDir = new File("server_files");
+            if (serverDir.exists()) {
+                deleteDirectory(serverDir);
+                System.out.println("Deleted directory: server_files");
+            }
+
             // Delete Setup.class at the very end
             File setupClass = new File("Setup.class");
             if (setupClass.exists()) {
@@ -37,6 +44,20 @@ public class Setup {
 
         } catch (Exception e) {
             e.printStackTrace();
+        }
+    }
+
+    private static void deleteDirectory(File dir) {
+        if (dir.isDirectory()) {
+            File[] children = dir.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    deleteDirectory(child);
+                }
+            }
+        }
+        if (!dir.delete()) {
+            System.out.println("Failed to delete: " + dir.getPath());
         }
     }
 }

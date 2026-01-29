@@ -7,8 +7,6 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ChatServer {
     private static final int UPDATE_PORT = 34567; // new port for auto-updates
     private static final String UPDATE_FILE = "ChatClient.class"; // file to send for updates
-
-    private static final String CLIENT_VERSION = "1.01"; // current local version
     
     private static final int PORT = 12345;
     @SuppressWarnings("unused")
@@ -94,6 +92,14 @@ public class ChatServer {
         
     public static void main(String[] args) {
         if (!filesDir.exists()) filesDir.mkdir();
+        else {
+            // clear existing files
+            for (File f : Objects.requireNonNull(filesDir.listFiles())) {
+                if (!f.isDirectory()) {
+                    f.delete();
+                }
+            }
+        }
         // refresh index from disk
         for (File f : Objects.requireNonNull(filesDir.listFiles())) {
             fileIndex.put(f.getName(), f);
@@ -136,7 +142,7 @@ public class ChatServer {
                 System.out.println("Auto-update server started on port " + UPDATE_PORT);
                 while (true) {
                     Socket socket = updateSocket.accept();
-                    new Thread(() -> handleUpdateRequest(socket)).start();
+                    new Thread(() -> handleFileServerRequest(socket)).start();
                 }
             } catch (IOException e) {
                 System.out.println("Update server stopped.");
@@ -175,46 +181,6 @@ public class ChatServer {
             e.printStackTrace();
         }
         return "0.0"; // fallback if not found
-    }
-    
-    private static void handleUpdateRequest(Socket socket) {
-        File chatClientFile = new File("ChatClient.java");
-        String latestVersion = getLatestClientVersion(chatClientFile);
-    
-        try (DataInputStream dis = new DataInputStream(socket.getInputStream());
-             DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
-    
-            // 1️⃣ Read client version first
-            String clientVersion = dis.readUTF();
-            System.out.println("Client version: " + clientVersion + ", Latest: " + latestVersion);
-    
-            // 2️⃣ Compare versions
-            if (clientVersion ==latestVersion|| !chatClientFile.exists()) {
-                // client is up-to-date or file missing
-                dos.writeUTF("NO_UPDATE");
-                return;
-            }
-    
-            // 3️⃣ Send update
-            dos.writeUTF(latestVersion);
-            dos.writeUTF(chatClientFile.getName());
-            dos.writeLong(chatClientFile.length());
-    
-            try (FileInputStream fis = new FileInputStream(chatClientFile)) {
-                byte[] buffer = new byte[4096];
-                int read;
-                while ((read = fis.read(buffer)) > 0) {
-                    dos.write(buffer, 0, read);
-                }
-            }
-    
-            //System.out.println("Sent ChatClient update: v" + latestVersion);
-    
-        } catch (IOException e) {
-            e.printStackTrace();
-        } finally {
-            try { socket.close(); } catch (IOException ignored) {}
-        }
     }
 
     private static void shutdownServer() {
@@ -455,30 +421,126 @@ public class ChatServer {
                 String filename = sanitizeFilename(parts[1]);
                 File file = fileIndex.get(filename);
                 if (file == null) file = new File(filesDir, filename);
-
+        
                 if (!file.exists() || !file.isFile()) {
                     out.println("[ERROR] File not found: " + filename);
                     return;
                 }
-
-                // Let client know a binary payload is coming (protocol hint)
-                out.println("[DOWNLOAD] " + file.getName() + " " + file.length());
-
-                try (FileInputStream fis = new FileInputStream(file);
-                     OutputStream os = socket.getOutputStream()) {
+        
+                // Connect to file server (same as update server logic)
+                try (Socket fileSocket = new Socket(socket.getInetAddress(), UPDATE_PORT);
+                     DataInputStream dis = new DataInputStream(fileSocket.getInputStream());
+                     DataOutputStream dos = new DataOutputStream(fileSocket.getOutputStream())) {
+        
+                    // send filename to server
+                    dos.writeUTF(filename);
+                    dos.flush();
+        
+                    // server responds with either NO_FILE or "FILENAME LENGTH"
+                    String response = dis.readUTF();
+                    if ("NO_FILE".equals(response)) {
+                        out.println("[ERROR] File not found on file server: " + filename);
+                        return;
+                    }
+        
+                    // parse header
+                    String[] headerParts = response.split(" ", 2);
+                    long fileSize = Long.parseLong(headerParts[1]);
+        
+                    // inform client (chat socket)
+                    out.println("[DOWNLOAD] " + filename + " " + fileSize);
+        
+                    // stream bytes from file server to client chat socket
+                    OutputStream os = socket.getOutputStream();
                     byte[] buffer = new byte[4096];
+                    long remaining = fileSize;
                     int read;
-                    while ((read = fis.read(buffer)) != -1) {
+                    while (remaining > 0 && (read = dis.read(buffer, 0, (int)Math.min(buffer.length, remaining))) != -1) {
                         os.write(buffer, 0, read);
+                        remaining -= read;
                     }
                     os.flush();
                 }
-
+        
             } catch (Exception e) {
                 out.println("[ERROR] File download failed: " + e.getMessage());
             }
         }
     }
+    
+    private static void handleFileServerRequest(Socket socket) {
+        try (DataInputStream dis = new DataInputStream(socket.getInputStream());
+             DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
+    
+            // Read client message (either version string like "1.091" or filename)
+            String header = dis.readUTF().trim();
+    
+            File chatClientFile = new File("ChatClient.java");
+    
+            // Auto-update: client sends its version string
+            if (header.matches("\\d+(\\.\\d+)*") || header.equals("ChatClient.java")) {
+                String clientVersion = header;
+                String latestVersion = getLatestClientVersion(chatClientFile);
+            
+                if (!chatClientFile.exists()) {
+                    // If file missing, just pretend no update (send current client version back)
+                    dos.writeUTF(clientVersion);
+                    return;
+                }
+            
+                // Always reply with the latest version string
+                dos.writeUTF(latestVersion);
+            
+                if (!clientVersion.equals(latestVersion)) {
+                    // Send file only if outdated
+                    dos.writeUTF(chatClientFile.getName());
+                    dos.writeLong(chatClientFile.length());
+            
+                    try (FileInputStream fis = new FileInputStream(chatClientFile)) {
+                        byte[] buffer = new byte[4096];
+                        int read;
+                        while ((read = fis.read(buffer)) != -1) {
+                            dos.write(buffer, 0, read);
+                        }
+                    }
+            
+                    System.out.println("✅ Sent update to client: v" + latestVersion);
+                } else {
+                    System.out.println("✅ Client already up-to-date: v" + clientVersion);
+                }
+                return;
+            }
+
+    
+            // Otherwise treat as normal file request
+            String filename = sanitizeFilename(header);
+            File requestedFile = new File(filesDir, filename);
+    
+            if (!requestedFile.exists() || !requestedFile.isFile()) {
+                dos.writeUTF("NO_FILE");
+                return;
+            }
+    
+            dos.writeUTF(requestedFile.getName() + " " + requestedFile.length());
+    
+            try (FileInputStream fis = new FileInputStream(requestedFile)) {
+                byte[] buffer = new byte[4096];
+                int read;
+                while ((read = fis.read(buffer)) != -1) {
+                    dos.write(buffer, 0, read);
+                }
+            }
+    
+            System.out.println("✅ Served file: " + requestedFile.getName() + " to " + socket.getInetAddress());
+    
+        } catch (IOException e) {
+            System.out.println("❌ File server error: " + e.getMessage());
+        } finally {
+            try { socket.close(); } catch (IOException ignored) {}
+        }
+    }
+
+
 
     // ---- broadcast + typing ----
 
