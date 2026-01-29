@@ -6,7 +6,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class ChatServer {
     private static final int UPDATE_PORT = 34567; // new port for auto-updates
-    private static final String UPDATE_FILE = "ChatClient.java"; // file to send for updates
+    private static final String UPDATE_FILE = "ChatClient.class"; // file to send for updates
 
     private static final String CLIENT_VERSION = "1.01"; // current local version
     
@@ -176,21 +176,27 @@ public class ChatServer {
         }
         return "0.0"; // fallback if not found
     }
-
     
     private static void handleUpdateRequest(Socket socket) {
         File chatClientFile = new File("ChatClient.java");
         String latestVersion = getLatestClientVersion(chatClientFile);
     
-        try (DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
-            // send version first
-            dos.writeUTF(latestVersion);
+        try (DataInputStream dis = new DataInputStream(socket.getInputStream());
+             DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
     
-            if (!chatClientFile.exists()) {
+            // 1️⃣ Read client version first
+            String clientVersion = dis.readUTF();
+            System.out.println("Client version: " + clientVersion + ", Latest: " + latestVersion);
+    
+            // 2️⃣ Compare versions
+            if (clientVersion ==latestVersion|| !chatClientFile.exists()) {
+                // client is up-to-date or file missing
                 dos.writeUTF("NO_UPDATE");
                 return;
             }
     
+            // 3️⃣ Send update
+            dos.writeUTF(latestVersion);
             dos.writeUTF(chatClientFile.getName());
             dos.writeLong(chatClientFile.length());
     
@@ -202,7 +208,8 @@ public class ChatServer {
                 }
             }
     
-            System.out.println("Sent ChatClient update: v" + latestVersion);
+            //System.out.println("Sent ChatClient update: v" + latestVersion);
+    
         } catch (IOException e) {
             e.printStackTrace();
         } finally {
@@ -298,6 +305,7 @@ public class ChatServer {
                 out.println("[INFO] Type /help to view all commands");
 
                 broadcast("🔵 " + username + " has joined the chat!");
+                broadcastUserList();
 
                 String message;
                 while ((message = in.readLine()) != null) {
@@ -360,7 +368,6 @@ public class ChatServer {
                 }
             }
         }
-
 
         private String listFilesLine() {
             File[] files = filesDir.listFiles();

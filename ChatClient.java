@@ -10,7 +10,7 @@ public class ChatClient {
     private static final String SERVER_IP = "192.168.100.60"; // change to your server IP
     private static final int SERVER_PORT = 12345;
 
-    private static final String CLIENT_VERSION = "1.07";
+    private static final String CLIENT_VERSION = "1.087";
     
     private DefaultListModel<String> userListModel = new DefaultListModel<>();
     private JList<String> userList = new JList<>(userListModel);
@@ -305,12 +305,14 @@ public class ChatClient {
     
     private void checkForUpdate() {
         try {
-            Socket socket = new Socket("192.168.100.60", 34567); // file server port
+            Socket socket = new Socket();
+            socket.connect(new InetSocketAddress("192.168.100.60", 34567), 5000); // 5s timeout
+            socket.setSoTimeout(5000); // read timeout
             DataInputStream dis = new DataInputStream(socket.getInputStream());
             DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
     
             // Request update for ChatClient
-            dos.writeUTF("ChatClient.java");
+            dos.writeUTF(CLIENT_VERSION);
             dos.flush();
     
             // Server sends latest version first
@@ -344,7 +346,9 @@ public class ChatClient {
                     "Update Complete",
                     JOptionPane.INFORMATION_MESSAGE);
             System.exit(0);
-    
+        } catch (SocketException se) {
+            System.out.println("Update server unreachable. Continuing without update...");
+            se.printStackTrace();
         } catch (IOException e) {
             //System.out.println("No update available or file server unreachable.");
             e.printStackTrace();
@@ -417,9 +421,8 @@ public class ChatClient {
         });
     }
 
-
     private void handleDisconnect() {
-        appendSystemMessage("❌ Server disconnected.");
+        appendSystemMessage("[@]❌ Server disconnected.[/@]");
         inputPane.setEditable(false);
         closeClient();
         new java.util.Timer().schedule(new java.util.TimerTask() {
@@ -444,16 +447,24 @@ public class ChatClient {
         SwingUtilities.invokeLater(() -> {
             try {
                 StyledDocument doc = chatPane.getStyledDocument();
+                int startLen = doc.getLength();
+                
+                // first run through your tag parser
+                insertStyledText(doc, message + "\n");
+                
+                // then apply magenta + bold to just this inserted section
                 SimpleAttributeSet sysStyle = new SimpleAttributeSet();
                 StyleConstants.setForeground(sysStyle, Color.MAGENTA);
                 StyleConstants.setBold(sysStyle, true);
-                doc.insertString(doc.getLength(), message + "\n", sysStyle);
+                doc.setCharacterAttributes(startLen, message.length(), sysStyle, false);
+    
                 chatPane.setCaretPosition(doc.getLength());
             } catch (Exception ex) {
                 ex.printStackTrace();
             }
         });
     }
+
 
     // Parse markup [b][i][u] into styles
     private void insertStyledText(StyledDocument doc, String text) throws BadLocationException {
@@ -478,12 +489,26 @@ public class ChatClient {
             } else if (text.startsWith("[/u]", i)) {
                 StyleConstants.setUnderline(attrs, false);
                 i += 4;
+            } else if (text.startsWith("[@]", i)) {               // start of mention
+                StyleConstants.setBackground(attrs, Color.YELLOW);
+                    if (frame != null) {
+                    SwingUtilities.invokeLater(() -> {
+                        frame.setState(JFrame.NORMAL);   // restore if minimized
+                        frame.toFront();                 // bring to front
+                        frame.requestFocus();            // request focus
+                    });
+                }
+                i += 3;
+            } else if (text.startsWith("[/@]", i)) {             // end of mention
+                StyleConstants.setBackground(attrs, Color.WHITE);
+                i += 4;
             } else {
                 doc.insertString(doc.getLength(), String.valueOf(text.charAt(i)), attrs);
                 i++;
             }
         }
     }
+
 
     private void appendMessage(String message) {
         SwingUtilities.invokeLater(() -> {
@@ -494,24 +519,6 @@ public class ChatClient {
                     String time = parts[0];
                     String user = parts[1].substring(0, parts[1].length() - 1);
                     String msg = parts[2];
-    
-                    // ✅ Emoji replacements (using array instead of chained replace)
-                    String[][] emojis = {
-                        {":smile:", "😄"}, {":grin:", "😁"}, {":joy:", "😂"},
-                        {":rofl:", "🤣"}, {":wink:", "😉"}, {":blush:", "😊"},
-                        {":sunglasses:", "😎"}, {":thinking:", "🤔"}, {":neutral:", "😐"},
-                        {":cry:", "😢"}, {":sob:", "😭"}, {":angry:", "😠"},
-                        {":rage:", "😡"}, {":skull:", "💀"}, {":fire:", "🔥"},
-                        {":thumbs:", "👍"}, {":thumbsdown:", "👎"}, {":heart:", "❤️"},
-                        {":broken_heart:", "💔"}, {":100:", "💯"}, {":star:", "⭐"},
-                        {":sparkles:", "✨"}, {":zap:", "⚡"}, {":check:", "✔️"},
-                        {":x:", "❌"}, {":wave:", "👋"}, {":clap:", "👏"},
-                        {":pray:", "🙏"}, {":ok_hand:", "👌"}, {":eyes:", "👀"},
-                        {":poop:", "💩"}, {":alien:", "👽"}, {":robot:", "🤖"},
-                        {":cat:", "🐱"}, {":dog:", "🐶"}, {":dragon:", "🐉"},
-                        {":ghost:", "👻"}, {":pumpkin:", "🎃"}, {":snowflake:", "❄️"},
-                        {":christmas_tree:", "🎄"}
-                    };
     
                     for (Map.Entry<String, String> entry : emojiMap.entrySet()) {
                         msg = msg.replace(entry.getKey(), entry.getValue());
@@ -528,6 +535,8 @@ public class ChatClient {
                     StyleConstants.setForeground(userStyle, userColors.get(user));
                     StyleConstants.setBold(userStyle, true);
                     doc.insertString(doc.getLength(), user + ": ", userStyle);
+                    
+                    msg = msg.replaceAll("@" + currentUsername, "[@]" + "@" + currentUsername + "[/@]");
     
                     insertStyledText(doc, msg + "\n");
                 } else {
