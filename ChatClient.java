@@ -7,10 +7,10 @@ import java.net.*;
 import java.util.*;
 
 public class ChatClient {
-    private static final String SERVER_IP = "192.168.100.60"; // change to your server IP
+    private static final String SERVER_IP = "192.168.1.63"; // change to your server IP
     private static final int SERVER_PORT = 12345;
 
-    private static final String CLIENT_VERSION = "1.099";
+    private static final String CLIENT_VERSION = "1.0991";
     
     private DefaultListModel<String> userListModel = new DefaultListModel<>();
     private JList<String> userList = new JList<>(userListModel);
@@ -678,8 +678,59 @@ public class ChatClient {
     private void hideTyping() {
         SwingUtilities.invokeLater(() -> typingLabel.setText(" "));
     }
+    public static void createShortcut(String appName, String className, String iconFile) {
+        try {
+            String home = System.getProperty("user.home");
+            File desktopFile = new File(home + "/.local/share/applications/" + appName + ".desktop");
+    
+            // Absolute path of the current project directory
+            String appDir = new File(".").getCanonicalPath();
+    
+            // Absolute path for the icon file
+            File icon = new File(appDir, iconFile);
+            if (!icon.exists()) {
+                System.err.println("Icon file not found: " + icon.getAbsolutePath());
+            }
+            String iconPath = icon.getAbsolutePath();
+    
+            // Exec line: Java class in default package
+            String execLine = "/usr/bin/java -cp \"" + appDir + "\" " + className;
+    
+            // Build the desktop entry
+            String content =
+                    "[Desktop Entry]\n" +
+                    "Version=1.0\n" +
+                    "Type=Application\n" +
+                    "Name=" + appName + "\n" +
+                    "Exec=" + execLine + "\n" +
+                    "Icon=" + iconPath + "\n" +
+                    "Terminal=false\n" +
+                    "StartupNotify=true\n" +
+                    "Path=" + appDir + "\n" +
+                    "Categories=Utility;\n";
+    
+            // Write the .desktop file
+            try (FileWriter fw = new FileWriter(desktopFile)) {
+                fw.write(content);
+            }
+    
+            // Make it executable
+            new ProcessBuilder("chmod", "+x", desktopFile.getAbsolutePath()).start().waitFor();
+    
+            // Mark trusted for GNOME
+            new ProcessBuilder("gio", "set", desktopFile.getAbsolutePath(), "metadata::trusted", "true")
+                    .start().waitFor();
+    
+            System.out.println("Shortcut created: " + desktopFile.getAbsolutePath());
+    
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
 
     public static void main(String[] args) {
+        createShortcut("Chatrooms", "ChatClient", "icon.png");
         ChatClient client = new ChatClient();
         client.start();
     }

@@ -3,7 +3,7 @@ import java.io.*;
 import java.net.*;
 
 public class FileClient {
-    private static final String SERVER_IP = "192.168.100.60"; // change to server IP
+    private static final String SERVER_IP = "192.168.1.255"; // change to server IP
     private static final int SERVER_PORT = 34567;
     
     /*

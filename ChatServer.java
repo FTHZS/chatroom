@@ -9,8 +9,6 @@ public class ChatServer {
     private static final String UPDATE_FILE = "ChatClient.class"; // file to send for updates
     
     private static final int PORT = 12345;
-    @SuppressWarnings("unused")
-    private static final int FILE_PORT = 12346; // reserved (not used in this text-line protocol)
 
     private static final Set<ClientHandler> clients =
             Collections.synchronizedSet(new HashSet<>());
@@ -77,8 +75,59 @@ public class ChatServer {
         EMOJI_MAP.put(":snowflake:", "❄️");
         EMOJI_MAP.put(":christmas_tree:", "🎄");
     }
-        
+    
+    public static void createShortcut(String appName, String className, String iconFile) {
+        try {
+            String home = System.getProperty("user.home");
+            File desktopFile = new File(home + "/.local/share/applications/" + appName + ".desktop");
+    
+            // Absolute path of the current project directory
+            String appDir = new File(".").getCanonicalPath();
+    
+            // Absolute path for the icon file
+            File icon = new File(appDir, iconFile);
+            if (!icon.exists()) {
+                System.err.println("Icon file not found: " + icon.getAbsolutePath());
+            }
+            String iconPath = icon.getAbsolutePath();
+    
+            // Exec line: Java class in default package
+            String execLine = "/usr/bin/java -cp \"" + appDir + "\" " + className;
+    
+            // Build the desktop entry
+            String content =
+                    "[Desktop Entry]\n" +
+                    "Version=1.0\n" +
+                    "Type=Application\n" +
+                    "Name=" + appName + "\n" +
+                    "Exec=" + execLine + "\n" +
+                    "Icon=" + iconPath + "\n" +
+                    "Terminal=true\n" +
+                    "StartupNotify=true\n" +
+                    "Path=" + appDir + "\n" +
+                    "Categories=Utility;\n";
+    
+            // Write the .desktop file
+            try (FileWriter fw = new FileWriter(desktopFile)) {
+                fw.write(content);
+            }
+    
+            // Make it executable
+            new ProcessBuilder("chmod", "+x", desktopFile.getAbsolutePath()).start().waitFor();
+    
+            // Mark trusted for GNOME
+            new ProcessBuilder("gio", "set", desktopFile.getAbsolutePath(), "metadata::trusted", "true")
+                    .start().waitFor();
+    
+            System.out.println("Shortcut created: " + desktopFile.getAbsolutePath());
+    
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
     public static void main(String[] args) {
+        createShortcut("ChatroomServer", "ChatServer", "icon.png");
         if (!filesDir.exists()) filesDir.mkdir();
         else {
             // clear existing files
@@ -133,6 +182,7 @@ public class ChatServer {
                     new Thread(() -> handleFileServerRequest(socket)).start();
                 }
             } catch (IOException e) {
+                e.printStackTrace();
                 System.out.println("Update server stopped.");
             }
         }, "update-server").start();
